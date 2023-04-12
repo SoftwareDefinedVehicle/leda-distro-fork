@@ -1,5 +1,5 @@
 # /********************************************************************************
-# * Copyright (c) 2022 Contributors to the Eclipse Foundation
+# * Copyright (c) 2023 Contributors to the Eclipse Foundation
 # *
 # * See the NOTICE file(s) distributed with this work for additional
 # * information regarding copyright ownership.
@@ -25,10 +25,11 @@ jobs:
   leda-qemux86_64:
     name: "qemux86_64"
     runs-on: ubuntu-22.04
-#    runs-on: self-hosted
-#    container: debian:bullseye
     continue-on-error: true
     steps:
+    - name: Cleanup test reports
+      run: |
+        sudo rm -rf resources/docker-snapshot/leda-tests-reports
     - name: Checkout
       uses: actions/checkout@v3
     - name: Install tools
@@ -72,8 +73,8 @@ jobs:
         time tar --append --verbose --dereference --file ${ARC} -C ./build/tmp/deploy/images/qemux86-64/ \
           bzImage-qemux86-64.bin \
           sdv-image-all-qemux86-64.wic.qcow2 \
-          sdv-rauc-bundle-full-qemux86-64.raucb \
           sdv-rauc-bundle-minimal-qemux86-64.raucb \
+          sdv-rauc-bundle-full-qemux86-64.raucb \
           sdv-rauc-bundle-rescue-qemux86-64.raucb \
           ovmf.qcow2
         time xz -v -8 -T0 ${ARC}
@@ -112,12 +113,12 @@ jobs:
 
   leda-qemuarm64:
     name: "qemuarm64"
-    needs: leda-qemux86_64
     runs-on: ubuntu-22.04
-#    runs-on: self-hosted
-#    container: debian:bullseye
     continue-on-error: true
     steps:
+    - name: Cleanup test reports
+      run: |
+        sudo rm -rf resources/docker-snapshot/leda-tests-reports
     - name: Checkout
       uses: actions/checkout@v3
     - name: Install tools
@@ -203,10 +204,11 @@ jobs:
     name: "raspberrypi4-64"
     runs-on: ubuntu-22.04
     needs: leda-qemuarm64
-#    runs-on: self-hosted
-#    container: debian:bullseye
     continue-on-error: true
     steps:
+    - name: Cleanup test reports
+      run: |
+        sudo rm -rf resources/docker-snapshot/leda-tests-reports
     - name: Checkout
       uses: actions/checkout@v3
     - name: Install tools
@@ -283,3 +285,94 @@ jobs:
         container_name: 'yocto-sstate-cache'
         overwrite: 'true'
         connection_string: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+
+  leda-docker:
+    name: "docker"
+    runs-on: ubuntu-22.04
+    needs: 
+    - leda-qemuarm64
+    - leda-qemux86_64
+    continue-on-error: true
+    steps:
+    - name: Cleanup test reports
+      run: |
+        sudo rm -rf resources/docker-snapshot/leda-tests-reports
+    - name: Checkout
+      uses: actions/checkout@v3
+    - name: Install tools
+      run: sudo apt-get install -y --no-install-recommends socat file gawk wget git diffstat unzip texinfo gcc build-essential chrpath socat cpio python3 python3-pip python3-pexpect xz-utils debianutils iputils-ping python3-git python3-jinja2 libegl1-mesa libsdl1.2-dev pylint xterm python3-subunit mesa-common-dev zstd liblz4-tool tmux mc skopeo fdisk ruby-full jq libvirt-clients libvirt-daemon-system qemu-system-x86 qemu-system-arm qemu-kvm squashfs-tools rauc python3-newt ca-certificates curl gnupg lsb-release
+    - name: Install kas
+      run: sudo pip3 install kas
+    - name: Cache SState
+      id: cache-sstate
+      uses: pat-s/always-upload-cache@v3.0.11
+      with:
+        path: build/sstate-cache
+        key: bb-sstate-cache-raspberrypi4-64
+    - name: Build qemux86-64
+      env:
+        KAS_MACHINE: qemux86-64
+      run: |
+        (r=3;while ! kas build kas/leda-qemux86-64.yaml:kas/mirrors.yaml ; do ((--r))||exit;sleep 60;done)
+    - name: Build qemuarm64
+      env:
+        KAS_MACHINE: qemuarm64
+      run: |
+        (r=3;while ! kas build kas/leda-qemuarm64.yaml:kas/mirrors.yaml ; do ((--r))||exit;sleep 60;done)
+    - name: Stop docker
+      if: always()
+      run: |
+        cd resources/docker-snapshot
+        ./stop-docker.sh
+        ./clear-docker.sh
+    - name: Build docker images
+      run: |
+        cd resources/docker-snapshot
+        ./build-docker.sh
+    - name: Startup docker
+      run: |
+        cd resources/docker-snapshot
+        ./run-docker.sh
+    - name: Run docker tests
+      timeout-minutes: 60
+      run: |
+        cd resources/docker-snapshot
+        ./test-docker.sh
+    - name: Upload test reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with: 
+        name: eclipse-leda-tests
+        if-no-files-found: error
+        path: resources/docker-snapshot/leda-tests-reports
+    - name: Publish docker images
+      env:
+        GITHUB_TOKEN: ${{ secrets.ECLIPSE_LEDA_PUBLISH_DOCKER }}
+      run: |
+        cd resources/docker-snapshot
+        ./publish-docker.sh
+    - name: Stop docker
+      if: always()
+      run: |
+        cd resources/docker-snapshot
+        ./stop-docker.sh
+        ./clear-docker.sh
+
+  generate_report:
+    if: always()
+    needs: [ leda-docker ] 
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Cleanup test reports
+      run: |
+        sudo rm -rf resources/docker-snapshot/leda-tests-reports
+    - uses: actions/checkout@v2
+    - name: Download reports
+      uses: actions/download-artifact@v1
+      with:
+        name: eclipse-leda-tests
+    - name: Send report to commit
+      uses: joonvena/robotframework-reporter-action@v2.1
+      with:
+        report_path: eclipse-leda-tests
+        gh_access_token: ${{ secrets.GITHUB_TOKEN }}
