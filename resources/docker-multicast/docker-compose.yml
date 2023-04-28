@@ -1,0 +1,66 @@
+# /********************************************************************************
+# * Copyright (c) 2023 Contributors to the Eclipse Foundation
+# *
+# * See the NOTICE file(s) distributed with this work for additional
+# * information regarding copyright ownership.
+# *
+# * This program and the accompanying materials are made available under the
+# * terms of the Apache License 2.0 which is available at
+# * https://www.apache.org/licenses/LICENSE-2.0
+# *
+# * SPDX-License-Identifier: Apache-2.0
+# ********************************************************************************/
+#
+# See https://compose-spec.io/
+version: "3.8"
+
+services:
+
+  first:
+    container_name: first
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.multicast
+    command: leda1
+    networks:
+      leda-network:
+        ipv4_address: 192.168.8.101
+      leda-bridge:
+    privileged: true
+
+  second:
+    container_name: second
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.multicast
+    command: leda2
+    networks:
+      leda-network:
+        ipv4_address: 192.168.8.102
+      leda-bridge:
+    privileged: true
+
+networks:
+  # All Leda components are in this network
+  leda-network:
+    name: leda-network
+    driver: ipvlan
+    driver_opts:
+      parent: eth0
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.enable_icc: "true"
+    ipam:
+      config:
+      - subnet: 192.168.8.0/24
+        ip_range: 192.168.8.0/24
+        gateway: 192.168.8.1
+  leda-bridge:
+    name: leda-bridge
+    driver: bridge
+    driver_opts:
+      com.docker.network.brudge.default_bridge: "true"
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
+      com.docker.network.bridge.name: "leda0"
+      com.docker.network.driver.mtu: "1500"
