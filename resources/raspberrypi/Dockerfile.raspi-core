@@ -1,0 +1,26 @@
+FROM balenalib/raspberrypi4-64-debian:build
+
+
+# Base libraries
+RUN sudo apt update && sudo apt upgrade
+RUN sudo apt-get install i2c-tools python3-smbus libi2c-dev python3-pip
+
+# Errors on balenalib/raspberrypi4-64-debian: error: command 'aarch64-linux-gnu-gcc' failed: No such file or directory
+# Errors on balenalib/raspberrypi4-64-debian:build: source/common.c:23:10: fatal error: Python.h: No such file or directory
+# Installing python3-dev before intalling RPi.GPIO
+RUN sudo apt-get install python3-dev git
+
+# RUN sudo pip3 install RPi.GPIO
+# Alternative for testing:
+RUN sudo pip3 install fake-rpigpio
+# Original installed git-all, which is pretty heavy as it also installs GUI components.
+# We modified it to install only "git" package.
+RUN sudo pip3 install adafruit-circuitpython-busdevice
+
+# Libraries for LCD Display
+RUN git clone https://github.com/joy-it/PCF8574-LCD.git /root/PCF8574-LCD/
+RUN cd /root/PCF8574-LCD/ && sudo python3 setup.py install
+
+# Run the code example as entrypoint
+WORKDIR /root/PCF8574-LCD/examples/
+ENTRYPOINT [ "python3", "example-20x4.py" ]
