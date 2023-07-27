@@ -41,6 +41,13 @@
 	"remoteUser": "vscode",
 	"features": {
 		"docker-in-docker": "latest",
-		"github-cli": "latest"
-	}
+		"github-cli": "latest",
+		"ghcr.io/devcontainers/features/desktop-lite:1": {}
+	},
+	"forwardPorts": [6080],
+    "portsAttributes": {
+     "6080": {
+       "label": "desktop"
+    }
+  }
 }
